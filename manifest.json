@@ -1,7 +1,7 @@
 {
-  "name": "WAVE — Wyckoff Analysis & Visual Engine",
+  "name": "WAVE",
   "short_name": "WAVE",
-  "description": "NSE Wyckoff Pattern Scanner",
+  "description": "Wyckoff Analysis & Visual Engine",
   "start_url": "./index.html",
   "display": "standalone",
   "orientation": "portrait",
