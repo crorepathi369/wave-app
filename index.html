@@ -3664,6 +3664,7 @@ function App() {
   const [bfProgress, setBfProgress] = useState({step:'', pct:0, done:0, total:0, days:0});
   const bfCancelRef = React.useRef(false);
   const [fetchStats, setFetchStats] = useState({cached:0, live:0, failed:0});
+  const [dataDate, setDataDate] = useState(null); // latest data timestamp seen
   const [dailyLog, setDailyLog] = useState(() => {
     try {
       const s = localStorage.getItem('wave_daily_log');
@@ -5300,6 +5301,14 @@ function App() {
       const gotData = !!res;
       if (gotData) setFetchStats(p=>({...p, [likelyCached?'cached':'live']: p[likelyCached?'cached':'live']+1}));
       else setFetchStats(p=>({...p, failed: p.failed+1}));
+      // Track latest data date from memory cache
+      if (gotData) {
+        const cd = _fetchMem[cacheKey];
+        if (cd?.length) {
+          const lastDate = cd[cd.length-1]?.date;
+          if (lastDate) setDataDate(d => (!d || lastDate > d) ? lastDate : d);
+        }
+      }
       if (res) { res.forEach(r=>r.type==="BUY"?buys.push(r):sells.push(r)); setSectorBuys([...buys]); setSectorSells([...sells]); }
       // Only throttle for live Yahoo — if WaveFS/cache connected assume local read
       if (forceFresh || (!likelyCached)) {
@@ -5522,116 +5531,56 @@ function App() {
         )}
       </div>
 
-      {/* ── Cloud Data bar — shown when CLOUD_URL is set ── */}
-      {CLOUD_URL&&!isMobile&&(
+      {/* ── Combined status bar: Cloud + Local in one line ── */}
+      {!isMobile&&(
         <div style={{
           fontSize:'10px', fontFamily:'IBM Plex Mono',
           borderBottom:'1px solid var(--blue-bd)',
-          background:'rgba(26,80,160,0.05)',
-          display:'flex',alignItems:'center',gap:'8px',padding:'5px 14px',
+          background:'rgba(26,80,160,0.04)',
+          display:'flex',alignItems:'center',gap:'6px',padding:'4px 14px',flexWrap:'wrap'
         }}>
-          <span style={{fontSize:'13px',flexShrink:0}}>☁️</span>
-          <span style={{color:'var(--blue)',fontWeight:700,flexShrink:0}}>Cloud connected</span>
-          {!isMobile&&<span style={{color:'var(--muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1,fontSize:'9px'}}>
-            {CLOUD_URL.replace('https://','').replace(/\/$/,'')} · yf_cache + wave_hist via Render
-          </span>}
-          {!isMobile&&<button onClick={async()=>{
+          {/* Cloud status */}
+          {CLOUD_URL&&<><span style={{fontSize:'11px'}}>☁️</span>
+          <span style={{color:'var(--blue)',fontWeight:700}}>Cloud</span>
+          <span style={{color:'var(--muted)',fontSize:'9px'}}>{CLOUD_URL.replace('https://','').replace(/\/$/,'')}</span>
+          <button onClick={async()=>{
             try{
               const r=await fetch(CLOUD_URL.replace(/\/$/,'')+'/api/health',{signal:AbortSignal.timeout(4000)});
               const j=await r.json();
               alert('✅ Cloud OK\nyf_cache: '+j.yf_cache_files+' files\nwave_hist: '+j.wave_hist_files+' files');
             }catch(e){alert('❌ Cloud unreachable\n'+e.message);}
           }} style={{fontFamily:'IBM Plex Mono',fontSize:'9px',fontWeight:700,
-            padding:'2px 7px',borderRadius:'5px',cursor:'pointer',flexShrink:0,
-            border:'1px solid var(--blue-bd)',background:'rgba(26,80,160,0.08)',color:'var(--blue)'}}>
-            ping
-          </button>}
+            padding:'1px 6px',borderRadius:'4px',cursor:'pointer',flexShrink:0,
+            border:'1px solid var(--blue-bd)',background:'rgba(26,80,160,0.08)',color:'var(--blue)'}}>ping</button>
+          <span style={{color:'var(--muted)'}}>·</span></>}
+          {/* Local folder status */}
+          {WaveFS.isSupported()&&<>
+          <span style={{fontSize:'11px'}}>{fsConnected?'🗂️':'📂'}</span>
+          {fsConnected
+            ? <span style={{color:'var(--green)',fontWeight:700}}>Local</span>
+            : fsStatus==='needs-resume'
+              ? <span style={{color:'var(--blue)',fontWeight:700}}>Tap Resume</span>
+              : <span style={{color:'var(--amber)',fontWeight:700}}>Not connected</span>}
+          {idbCount>0&&<span style={{color:'var(--blue)',background:'rgba(59,130,246,0.08)',
+            border:'1px solid rgba(59,130,246,0.25)',borderRadius:'4px',padding:'1px 5px',fontSize:'9px',fontWeight:700}}>⚡ {idbCount}</span>}
+          {idbCount>0&&<button onClick={async()=>{
+            await WaveFS.flushYFIDB();
+            Object.keys(_fetchMem).forEach(k=>delete _fetchMem[k]);
+            try{Object.keys(sessionStorage).filter(k=>k.startsWith('yf_')).forEach(k=>sessionStorage.removeItem(k));}catch{}
+            setIdbCount(0);
+          }} style={{fontFamily:'IBM Plex Mono',fontSize:'9px',fontWeight:700,
+            padding:'1px 6px',borderRadius:'4px',cursor:'pointer',
+            border:'1px solid var(--red-bd)',background:'rgba(239,68,68,0.08)',color:'var(--red)'}}>🗑 Flush</button>}
+          {!fsConnected&&fsStatus==='needs-resume'&&<button onClick={resumeFS} style={{fontFamily:'IBM Plex Mono',fontSize:'9px',fontWeight:700,
+            padding:'1px 6px',borderRadius:'4px',cursor:'pointer',
+            border:'1px solid var(--blue-bd)',background:'rgba(26,80,160,0.12)',color:'var(--blue)'}}>▶ Resume</button>}
+          {!fsConnected&&fsStatus!=='connecting'&&<button onClick={connectFS} style={{fontFamily:'IBM Plex Mono',fontSize:'9px',fontWeight:700,
+            padding:'1px 6px',borderRadius:'4px',cursor:'pointer',
+            border:'1px solid var(--amber-bd)',background:'rgba(251,191,36,0.15)',color:'var(--amber)'}}>
+            {fsStatus==='needs-resume'?'↺ Change':'Connect'}</button>}
+          </>}
         </div>
       )}
-
-      {/* ── Local Data — collapsible — hidden on mobile when cloud active ── */}
-      {WaveFS.isSupported()&&!(isMobile&&CLOUD_URL)&&(()=>{
-        const [ldOpen, setLdOpen] = React.useState(false);
-        return (
-          <div style={{
-            fontSize:'10px', fontFamily:'IBM Plex Mono',
-            borderBottom:'1px solid '+(fsConnected?'var(--green-bd)':'var(--amber-bd)'),
-            background:fsConnected?'var(--green-bg)':'rgba(251,191,36,0.05)',
-          }}>
-            {/* Single header row: icon + status + badge + buttons + chevron */}
-            <div style={{display:'flex',alignItems:'center',gap:'8px',padding:'6px 14px',flexWrap:'wrap'}}>
-              <span style={{fontSize:'13px',flexShrink:0}}>{fsConnected?'🗂️':fsStatus==='connecting'?'⟳':'📂'}</span>
-              {/* Status text */}
-              {fsConnected
-                ? <span style={{color:'var(--green)',fontWeight:700,flexShrink:0}}>Local data connected</span>
-                : fsStatus==='connecting'
-                  ? <span style={{color:'var(--muted)',flexShrink:0}}>Reconnecting…</span>
-                  : fsStatus==='needs-resume'
-                    ? <span style={{color:'var(--blue)',fontWeight:700,flexShrink:0}}>Tap Resume</span>
-                    : <span style={{color:'var(--amber)',fontWeight:700,flexShrink:0}}>Not connected</span>
-              }
-              {idbCount>0&&<span style={{
-                color:'var(--blue)',background:'rgba(59,130,246,0.08)',
-                border:'1px solid rgba(59,130,246,0.25)',
-                borderRadius:'4px',padding:'1px 5px',fontSize:'9px',fontWeight:700,flexShrink:0
-              }}>⚡ {idbCount} indexed</span>}
-              {/* Action buttons inline */}
-              {fsConnected&&(
-                <button onClick={async()=>{
-                  setFsStatus('loading');
-                  const n = await WaveFS.warmIDBFromFS();
-                  setIdbCount(n);
-                  Object.keys(_fetchMem).forEach(k=>delete _fetchMem[k]);
-                  try{Object.keys(sessionStorage).filter(k=>k.startsWith('yf_')||k.startsWith('wave_sec_')).forEach(k=>sessionStorage.removeItem(k));}catch{}
-                  setFsStatus('ready');
-                }} style={{fontFamily:'IBM Plex Mono',fontSize:'9px',fontWeight:700,
-                  padding:'2px 7px',borderRadius:'5px',cursor:'pointer',flexShrink:0,
-                  border:'1px solid var(--blue-bd)',background:'rgba(26,80,160,0.08)',color:'var(--blue)'}}>↺ Sync</button>
-              )}
-              {idbCount>0&&(
-                <button onClick={async()=>{
-                  await WaveFS.flushYFIDB();
-                  Object.keys(_fetchMem).forEach(k=>delete _fetchMem[k]);
-                  try{Object.keys(sessionStorage).filter(k=>k.startsWith('yf_')).forEach(k=>sessionStorage.removeItem(k));}catch{}
-                  setIdbCount(0);
-                }} style={{fontFamily:'IBM Plex Mono',fontSize:'9px',fontWeight:700,
-                  padding:'2px 7px',borderRadius:'5px',cursor:'pointer',flexShrink:0,
-                  border:'1px solid var(--red-bd)',background:'rgba(239,68,68,0.08)',color:'var(--red)'}}>🗑 Flush</button>
-              )}
-              {!fsConnected&&fsStatus==='needs-resume'&&(
-                <button onClick={resumeFS} style={{fontFamily:'IBM Plex Mono',fontSize:'9px',fontWeight:700,
-                  padding:'2px 7px',borderRadius:'5px',cursor:'pointer',flexShrink:0,
-                  border:'1px solid var(--blue-bd)',background:'rgba(26,80,160,0.12)',color:'var(--blue)'}}>▶ Resume</button>
-              )}
-              {!fsConnected&&fsStatus!=='connecting'&&(
-                <button onClick={connectFS} style={{fontFamily:'IBM Plex Mono',fontSize:'9px',fontWeight:700,
-                  padding:'2px 7px',borderRadius:'5px',cursor:'pointer',flexShrink:0,
-                  border:'1px solid var(--amber-bd)',background:'rgba(251,191,36,0.15)',color:'var(--amber)'}}>
-                  {fsStatus==='needs-resume'?'↺ Change':'Connect'}
-                </button>
-              )}
-              {/* Chevron — expand hint text */}
-              <span style={{marginLeft:'auto',color:'var(--muted)',fontSize:'10px',cursor:'pointer',
-                transition:'transform .2s',display:'inline-block',
-                transform:ldOpen?'rotate(0deg)':'rotate(180deg)'}}
-                onClick={()=>setLdOpen(p=>!p)}>▲</span>
-            </div>
-            {/* Row 2: hint text — only when expanded */}
-            {ldOpen&&(
-              <div style={{padding:'0 14px 6px',color:'var(--muted)',fontSize:'9px'}}>
-                {fsConnected
-                  ? 'App_Wave/data/yf_cache/ · python wave_fetch.py --tf 1d --merge  ·  --hist --merge'
-                  : fsStatus==='needs-resume'
-                    ? 'Chrome requires one click to re-grant folder access — tap Resume above'
-                    : CLOUD_URL
-                      ? 'Cloud active — local folder optional for faster scans'
-                      : 'Open WAVE.html in Chrome, then tap Connect'
-                }
-              </div>
-            )}
-          </div>
-        );
-      })()}
 
       {/* Collapse bar — always shown */}
       <div className="ctrl-collapse-bar" onClick={()=>!scanning&&(()=>{const v=!ctrlOpen;setCtrlOpen(v);try{localStorage.setItem('wave_ctrl_open',v?'1':'0');}catch{}})()}>
@@ -5649,6 +5598,14 @@ function App() {
               color: fetchStats.live>0 ? 'var(--amber)' : 'var(--green)'}}>
               {fetchStats.cached>0&&<span style={{color:'var(--green)'}}>💾 {fetchStats.cached} cached</span>}
               {fetchStats.live>0&&<span style={{color:'var(--amber)'}}>{fetchStats.cached>0?' · ':''}{CLOUD_URL?'☁️':'🌐'} {fetchStats.live} {CLOUD_URL?'cloud':'Yahoo'}</span>}
+            </span>
+          )}
+          {done&&!scanning&&dataDate&&(
+            <span style={{fontFamily:'IBM Plex Mono',fontSize:'9px',marginLeft:'4px',
+              padding:'1px 6px',borderRadius:'4px',
+              background:'rgba(74,222,128,0.08)',border:'1px solid var(--green-bd)',
+              color:'var(--green)'}}>
+              📅 {new Date(dataDate+'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'2-digit'})}
             </span>
           )}
         </span>
