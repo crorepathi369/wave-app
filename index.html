@@ -5626,7 +5626,7 @@ function App() {
       )}
 
       {/* Collapse bar — always shown */}
-      <div className="ctrl-collapse-bar" onClick={()=>!scanning&&(()=>{const v=!ctrlOpen;setCtrlOpen(v);try{localStorage.setItem('wave_ctrl_open',v?'1':'0');}catch{}})()}>
+      <div className="ctrl-collapse-bar" style={{display:isMobile&&scanning?'none':'flex'}} onClick={()=>!scanning&&(()=>{const v=!ctrlOpen;setCtrlOpen(v);try{localStorage.setItem('wave_ctrl_open',v?'1':'0');}catch{}})()}>
         <span className="ctrl-collapse-label">
           {scanning
             ? '⏳ Scanning ' + tf.label + '…'
@@ -5648,7 +5648,12 @@ function App() {
               padding:'1px 6px',borderRadius:'4px',
               background:'rgba(74,222,128,0.08)',border:'1px solid var(--green-bd)',
               color:'var(--green)'}}>
-              📅 {(()=>{ try { const d=new Date(dataDate); return isNaN(d)?dataDate:d.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'2-digit'}); } catch { return dataDate; } })()}
+              📅 {(()=>{ try {
+                if (!dataDate) return '';
+                // Handle both string '2026-06-25' and numeric timestamp formats
+                const d = typeof dataDate === 'string' ? new Date(dataDate.length===10 ? dataDate+'T12:00:00Z' : dataDate) : new Date(dataDate > 1e10 ? dataDate : dataDate*1000);
+                return isNaN(d) ? String(dataDate).slice(0,10) : d.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'2-digit'});
+              } catch { return String(dataDate).slice(0,10); } })()}
             </span>
           )}
         </span>
