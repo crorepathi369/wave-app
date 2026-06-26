@@ -3665,6 +3665,42 @@ function App() {
   const bfCancelRef = React.useRef(false);
   const [fetchStats, setFetchStats] = useState({cached:0, live:0, failed:0});
   const [dataDate, setDataDate] = useState(null); // latest data timestamp seen
+  const [fetchTrigger, setFetchTrigger] = useState('idle'); // idle | running | done | error
+
+  const triggerGHFetch = async () => {
+    let pat = localStorage.getItem('wave_gh_pat') || '';
+    if (!pat) {
+      pat = prompt('Enter GitHub PAT (stored locally, never sent elsewhere):\n\nNeeds repo workflow scope.');
+      if (!pat) return;
+      localStorage.setItem('wave_gh_pat', pat.trim());
+      pat = pat.trim();
+    }
+    setFetchTrigger('running');
+    try {
+      const r = await fetch('https://api.github.com/repos/crorepathi369/wave-app/actions/workflows/fetch_data.yml/dispatches', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + pat, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ref: 'main' })
+      });
+      if (r.status === 204) {
+        setFetchTrigger('done');
+        setTimeout(() => setFetchTrigger('idle'), 30000);
+      } else if (r.status === 401) {
+        localStorage.removeItem('wave_gh_pat');
+        setFetchTrigger('error');
+        alert('❌ PAT invalid or expired — cleared. Try again.');
+        setTimeout(() => setFetchTrigger('idle'), 3000);
+      } else {
+        setFetchTrigger('error');
+        alert('❌ Trigger failed: HTTP ' + r.status);
+        setTimeout(() => setFetchTrigger('idle'), 3000);
+      }
+    } catch(e) {
+      setFetchTrigger('error');
+      alert('❌ Network error: ' + e.message);
+      setTimeout(() => setFetchTrigger('idle'), 3000);
+    }
+  };
   const [dailyLog, setDailyLog] = useState(() => {
     try {
       const s = localStorage.getItem('wave_daily_log');
@@ -5461,10 +5497,17 @@ function App() {
               {fsStatus==='connecting'?'⟳':fsStatus==='loading'?'⟳':fsConnected?'🗂️':fsStatus==='needs-resume'?'▶':'📂'}
             </button>
           )}
-          {CLOUD_URL&&!isMobile&&(
-            <span title={'Cloud: '+CLOUD_URL}
-              style={{fontSize:'14px',lineHeight:1,opacity:0.85,cursor:'default'}}
-              className="icon-btn">☁️</span>
+          {CLOUD_URL&&(
+            <button onClick={triggerGHFetch} disabled={fetchTrigger==='running'}
+              title={fetchTrigger==='done'?'Fetch triggered — GitHub Actions running (~8 min)':
+                     fetchTrigger==='running'?'Triggering…':'Fetch fresh data from Yahoo via GitHub Actions'}
+              style={{width:'34px',height:'34px',borderRadius:'8px',cursor:fetchTrigger==='running'?'default':'pointer',
+                border:'1px solid '+(fetchTrigger==='done'?'var(--green-bd)':fetchTrigger==='error'?'var(--red-bd)':'var(--blue-bd)'),
+                background:fetchTrigger==='done'?'rgba(74,222,128,0.08)':fetchTrigger==='error'?'rgba(239,68,68,0.06)':'rgba(26,80,160,0.06)',
+                display:'flex',alignItems:'center',justifyContent:'center',fontSize:'15px',
+                opacity:fetchTrigger==='running'?0.5:1,flexShrink:0}}>
+              {fetchTrigger==='running'?'⟳':fetchTrigger==='done'?'✅':fetchTrigger==='error'?'❌':'☁️'}
+            </button>
           )}
           <button className="reset-btn" onClick={resetAll} title="Reset">↺</button>
           {isMobile&&idbCount>0&&<button onClick={flushCache} title="Flush cache" style={{
