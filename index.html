@@ -5648,7 +5648,7 @@ function App() {
               padding:'1px 6px',borderRadius:'4px',
               background:'rgba(74,222,128,0.08)',border:'1px solid var(--green-bd)',
               color:'var(--green)'}}>
-              📅 {new Date(dataDate+'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'2-digit'})}
+              📅 {(()=>{ try { const d=new Date(dataDate); return isNaN(d)?dataDate:d.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'2-digit'}); } catch { return dataDate; } })()}
             </span>
           )}
         </span>
