@@ -3586,7 +3586,8 @@ function App() {
   const [sortBy, setSortBy]     = useState('conf');
   const [confThresh, setConfThresh] = useState(0);
   const [filterZone, setFilterZone] = useState(false); // show only in-zone signals
-  const [filterRsiMin, setFilterRsiMin] = useState(0); // RSI minimum filter (0 = off)
+  const [filterRsiMin, setFilterRsiMin] = useState(0); // RSI minimum filter for BUY (0 = off)
+  const [filterRsiMax, setFilterRsiMax] = useState(0); // RSI maximum filter for SHORT (0 = off)
   const [showHeat, setShowHeat]     = useState(true);
   const [showFilters, setShowFilters] = useState(true);
   const [filterSetups, setFilterSetups] = useState(new Set()); // stageKey filter
@@ -3977,7 +3978,7 @@ function App() {
     setSectorBuys([]); setSectorSells([]); setSectorDone(false); setSectorTime(null);
     setSingleBuys([]); setSingleSells([]); setSingleDone(false); setSingleTime(null);
     setProgress(0); setScannedCount(0); setTotalExpected(0); setCurrentStock('');
-    setFilterSectors(new Set()); setFilterCaps(new Set()); setFilterZone(false); (()=>{setCtrlOpen(true);try{localStorage.setItem('wave_ctrl_open','1');}catch{}})(); setConfThresh(0); setFilterSetups(new Set());
+    setFilterSectors(new Set()); setFilterCaps(new Set()); setFilterZone(false); (()=>{setCtrlOpen(true);try{localStorage.setItem('wave_ctrl_open','1');}catch{}})(); setConfThresh(0); setFilterSetups(new Set()); setFilterRsiMin(0); setFilterRsiMax(0);
     cancelRef.current = true;
   };
 
@@ -5392,7 +5393,10 @@ function App() {
     if (filterCaps.size > 0)     out = out.filter(o => filterCaps.has(o.cap||'unknown'));
     if (filterSetups.size > 0)   out = out.filter(o => filterSetups.has(o.stageKey));
     out = out.filter(o => o.confidence >= confThresh);
-    if (filterRsiMin > 0) out = out.filter(o => o.rsi14 !== null && o.rsi14 >= filterRsiMin);
+    if (filterRsiMin > 0) out = out.filter(o => o.type !== 'BUY'  || (o.rsi14 !== null && o.rsi14 >= filterRsiMin));
+    if (filterRsiMax > 0 && filterRsiMax < 100)   out = out.filter(o => o.type !== 'SELL' || (o.rsi14 !== null && o.rsi14 <= filterRsiMax));
+    if (filterRsiMax === 999)  out = out.filter(o => o.type !== 'SELL' || (o.rsi14 !== null && o.rsi14 >= 60));
+    if (filterRsiMax === 9999) out = out.filter(o => o.type !== 'SELL' || (o.rsi14 !== null && o.rsi14 >= 70));
     // Always remove stale signals — price extended beyond entry, signal is invalid
     out = out.filter(o => {
       const isBuyLocal = o.type === 'BUY';
@@ -5414,7 +5418,7 @@ function App() {
   const availCaps    = [...new Set([...buyOpps,...sellOpps].map(o=>o.cap||'unknown'))].filter(c=>c!=='unknown');
   const capOrder     = ['index','large','mid','small'];
   availCaps.sort((a,b)=>capOrder.indexOf(a)-capOrder.indexOf(b));
-  const hasFilters = filterSectors.size>0 || filterCaps.size>0 || filterSetups.size>0 || confThresh>0 || filterZone || filterRsiMin>0;
+  const hasFilters = filterSectors.size>0 || filterCaps.size>0 || filterSetups.size>0 || confThresh>0 || filterZone || filterRsiMin>0 || filterRsiMax>0;
   const sectorMap = {};
   [...buyOpps,...sellOpps].forEach(o=>{
     if(!sectorMap[o.sector]) sectorMap[o.sector]={buy:0,sell:0};
@@ -6469,7 +6473,8 @@ function App() {
                     {(()=>{
                       const parts = [];
                       if (confThresh>0) parts.push(`Conf≥${confThresh}%`);
-                      if (filterRsiMin>0) parts.push(`RSI≥${filterRsiMin}`);
+                      if (filterRsiMin>0) parts.push(`RSI▲≥${filterRsiMin}`);
+                      if (filterRsiMax>0) parts.push(filterRsiMax===999?'RSI▼>60':filterRsiMax===9999?'RSI▼>70':`RSI▼≤${filterRsiMax}`);
                       if (filterSectors.size>0) parts.push([...filterSectors].join(', '));
                       if (filterCaps.size>0) parts.push([...filterCaps].map(c=>({index:'IDX',large:'Lg',mid:'Mid',small:'Sm'})[c]||c).join(', '));
                       if (filterZone) parts.push('In Zone');
@@ -6520,9 +6525,16 @@ function App() {
                   {/* Row 2: RSI · Setup chips · Clear */}
                   <div style={{display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
                     <span className="filter-lbl" style={{flexShrink:0}}>RSI</span>
+                    <span style={{fontSize:'9px',color:'var(--green)',fontFamily:'IBM Plex Mono',flexShrink:0}}>▲</span>
                     <div className="conf-btn-grp">
                       {[{v:0,l:'All'},{v:36,l:'>35'},{v:50,l:'>50'},{v:60,l:'>60'}].map(({v,l})=>(
                         <button key={v} className={'conf-btn'+(filterRsiMin===v?' on':'')} onClick={()=>setFilterRsiMin(v)}>{l}</button>
+                      ))}
+                    </div>
+                    <span style={{fontSize:'9px',color:'var(--red)',fontFamily:'IBM Plex Mono',flexShrink:0}}>▼</span>
+                    <div className="conf-btn-grp">
+                      {[{v:0,l:'All'},{v:40,l:'<40'},{v:30,l:'<30'},{v:20,l:'<20'},{v:999,l:'>60'},{v:9999,l:'>70'}].map(({v,l})=>(
+                        <button key={v} className={'conf-btn'+(filterRsiMax===v?' on':'')} onClick={()=>setFilterRsiMax(v)}>{l}</button>
                       ))}
                     </div>
                     {(()=>{
